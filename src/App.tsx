@@ -19,7 +19,8 @@ function selectedOffsets(root: HTMLElement): SelectionState | null {
   const start = before.toString().length
   const text = range.toString()
   if (!text.trim()) return null
-  const lastRect = Array.from(range.getClientRects()).at(-1) ?? range.getBoundingClientRect()
+  const rects = Array.from(range.getClientRects())
+  const lastRect = rects[rects.length - 1] ?? range.getBoundingClientRect()
   return { start, end: start + text.length, x: lastRect.right, y: lastRect.bottom }
 }
 
@@ -70,7 +71,10 @@ export default function App() {
   const wordCount = useMemo(() => draft.trim() ? draft.trim().split(/\s+/).length : 0, [draft])
   const apply = (label: string, color: string, kind: Mark['kind'] = 'color', replacement?: string) => {
     if (!selection) return
-    setMarks((items) => [...items, { id: crypto.randomUUID(), start: selection.start, end: selection.end, label, color, kind, replacement }])
+    const id = typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+    setMarks((items) => [...items, { id, start: selection.start, end: selection.end, label, color, kind, replacement }])
     window.getSelection()?.removeAllRanges(); setSelection(null)
   }
   const send = () => {
