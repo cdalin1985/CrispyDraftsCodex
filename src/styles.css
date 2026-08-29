@@ -31,7 +31,7 @@ textarea:focus { border-color: #63676c; box-shadow: 0 0 0 3px #ebedf0; }
 .mark { color: inherit; padding: 0 .05em; border-radius: 2px; }
 .mark.green { background: #c6f1d6; }.mark.yellow { background: #fff0ac; }.mark.orange { background: #ffd6a3; }.mark.red { background: #ffc4bf; }.mark.blue { background: #bedcff; }.mark.purple { background: #e0c9ff; }.mark.cyan { background: #b7edf1; }.mark.pink { background: #ffc9de; }.mark.black { background: #d5d6d8; }
 .mark.custom-exact { outline: 1.5px dashed #d99d00; outline-offset: 2px; }.mark.custom-gist { outline: 1.5px dashed #8656d2; outline-offset: 2px; }
-.popup { position: fixed; z-index: 20; width: 326px; background: #fff; border: 1px solid #d5d7da; border-radius: 5px; box-shadow: 0 14px 34px rgba(20,25,30,.16); overflow: hidden; }
+.popup { position: fixed; z-index: 20; width: 326px; max-height: calc(100vh - 24px); background: #fff; border: 1px solid #d5d7da; border-radius: 5px; box-shadow: 0 14px 34px rgba(20,25,30,.16); overflow-x: hidden; overflow-y: auto; }
 .popup-head { height: 37px; padding: 0 10px 0 13px; border-bottom: 1px solid #e9eaeb; color: #7d8085; display: flex; align-items: center; justify-content: space-between; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; }
 .popup-head button { border: 0; background: transparent; padding: 5px; color: #777; display: grid; place-items: center; }
 .action-grid { display: grid; grid-template-columns: 1fr 1fr; padding: 5px; }

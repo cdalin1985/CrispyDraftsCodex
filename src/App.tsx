@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { Eraser, Mic, RotateCcw, Send, Undo2, X } from 'lucide-react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Eraser, Mic, Pencil, RotateCcw, Send, Undo2, X } from 'lucide-react'
 import { actions, initialDraft } from './constants'
 import { buildCodexPrompt } from './PromptBuilder'
 import type { Mark, SelectionState } from './types'
@@ -38,9 +38,8 @@ function ActionPopup({ selection, onApply, onClose }: { selection: SelectionStat
   const [custom, setCustom] = useState(false)
   const [direction, setDirection] = useState('')
   const [listening, setListening] = useState(false)
+  const [position, setPosition] = useState({ left: 12, top: 12 })
   const ref = useRef<HTMLDivElement>(null)
-  const maxX = Math.max(12, Math.min(selection.x, window.innerWidth - 340))
-  const top = Math.max(78, selection.y + 10)
   const dictate = () => {
     const Recognition = (window as SpeechWindow).SpeechRecognition ?? (window as SpeechWindow).webkitSpeechRecognition
     if (!Recognition) return
@@ -55,7 +54,24 @@ function ActionPopup({ selection, onApply, onClose }: { selection: SelectionStat
     document.addEventListener('mousedown', outside)
     return () => document.removeEventListener('mousedown', outside)
   }, [onClose])
-  return <div className="popup" ref={ref} style={{ left: maxX, top }} role="dialog" aria-label="Mark selected text">
+  useLayoutEffect(() => {
+    const popup = ref.current
+    if (!popup) return
+    const margin = 12
+    const gap = 10
+    const bounds = popup.getBoundingClientRect()
+    const left = Math.max(margin, Math.min(selection.x, window.innerWidth - bounds.width - margin))
+    const below = selection.y + gap
+    const above = selection.y - bounds.height - gap
+    const top = below + bounds.height <= window.innerHeight - margin
+      ? below
+      : Math.max(margin, above)
+    setPosition({
+      left,
+      top: Math.min(top, Math.max(margin, window.innerHeight - bounds.height - margin)),
+    })
+  }, [selection, custom])
+  return <div className="popup" ref={ref} style={position} role="dialog" aria-label="Mark selected text">
     <div className="popup-head"><span>Mark selection</span><button onClick={onClose} aria-label="Close"><X size={15} /></button></div>
     {!custom ? <div className="action-grid">{actions.map((action) => <button key={action.label} className="action" onClick={() => onApply(action.label, action.color)}><span>{action.emoji}</span>{action.label}</button>)}</div> : <div className="custom-form"><label htmlFor="direction">Your direction</label><div className="dictation"><input id="direction" autoFocus value={direction} onChange={(event) => setDirection(event.target.value)} placeholder="e.g. Make this more direct" /><button onClick={dictate} className={listening ? 'listening' : ''} aria-label="Dictate direction"><Mic size={16} /></button></div><button className="apply exact" disabled={!direction.trim()} onClick={() => onApply('Custom edit', 'yellow', 'custom-exact', direction)}>Apply exactly as typed</button><button className="apply gist" disabled={!direction.trim()} onClick={() => onApply('Custom edit', 'purple', 'custom-gist', direction)}>Codex rewrites from gist</button></div>}
     {!custom && <button className="custom-toggle" onClick={() => setCustom(true)}><Eraser size={15} />Custom edit</button>}
@@ -69,6 +85,11 @@ export default function App() {
   const [selection, setSelection] = useState<SelectionState | null>(null)
   const editorRef = useRef<HTMLDivElement>(null)
   const wordCount = useMemo(() => draft.trim() ? draft.trim().split(/\s+/).length : 0, [draft])
+  const updateDraft = (value: string) => {
+    setDraft(value)
+    setMarks([])
+    setSelection(null)
+  }
   const apply = (label: string, color: string, kind: Mark['kind'] = 'color', replacement?: string) => {
     if (!selection) return
     const id = typeof crypto.randomUUID === 'function'
@@ -81,6 +102,6 @@ export default function App() {
     const prompt = buildCodexPrompt(draft, marks)
     window.open(`https://chatgpt.com/codex?q=${encodeURIComponent(prompt)}`, '_blank', 'noopener,noreferrer')
   }
-  if (!started) return <main className="landing"><section><div className="brand">CrispyDrafts</div><h1>Mark the draft.<br />Make the next pass count.</h1><p>Highlight the parts that need attention, then send Codex a precise map for the rewrite.</p><textarea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Paste your draft here…" aria-label="Draft" /><div className="landing-footer"><span>{wordCount} words</span><button className="primary" onClick={() => setStarted(true)} disabled={!draft.trim()}>Start marking <Send size={16} /></button></div></section></main>
-  return <div className="app-shell"><header className="toolbar"><button className="brand-btn" onClick={() => setStarted(false)}>CrispyDrafts</button><div className="toolbar-actions"><button onClick={() => setMarks((items) => items.slice(0, -1))} disabled={!marks.length}><Undo2 size={17} /> <span>Undo</span></button><button onClick={() => setMarks([])} disabled={!marks.length}><RotateCcw size={16} /> <span>Clear all</span></button><button className="primary send" onClick={send}><Send size={16} /> Send to Codex</button></div></header><main className="workspace"><article className="document"><div className="document-meta"><span>{wordCount} words</span><span>{draft.length.toLocaleString()} characters</span></div><div ref={editorRef} className="draft" onMouseUp={() => editorRef.current && setSelection(selectedOffsets(editorRef.current))} onKeyUp={() => editorRef.current && setSelection(selectedOffsets(editorRef.current))} role="textbox" aria-label="Marked draft"><MarkedDraft draft={draft} marks={marks} /></div></article></main>{selection && <ActionPopup selection={selection} onApply={apply} onClose={() => setSelection(null)} />}</div>
+  if (!started) return <main className="landing"><section><div className="brand">CrispyDrafts</div><h1>Mark the draft.<br />Make the next pass count.</h1><p>Paste or type your writing below, then highlight the parts that need attention.</p><textarea autoFocus value={draft} onChange={(event) => updateDraft(event.target.value)} placeholder="Paste or type your draft here…" aria-label="Draft" /><div className="landing-footer"><span>{wordCount} words</span><button className="primary" onClick={() => setStarted(true)} disabled={!draft.trim()}>Start marking <Send size={16} /></button></div></section></main>
+  return <div className="app-shell"><header className="toolbar"><button className="brand-btn" onClick={() => setStarted(false)}>CrispyDrafts</button><div className="toolbar-actions"><button onClick={() => { setSelection(null); setStarted(false) }}><Pencil size={16} /> <span>Edit draft</span></button><button onClick={() => setMarks((items) => items.slice(0, -1))} disabled={!marks.length}><Undo2 size={17} /> <span>Undo</span></button><button onClick={() => setMarks([])} disabled={!marks.length}><RotateCcw size={16} /> <span>Clear all</span></button><button className="primary send" onClick={send}><Send size={16} /> Send to Codex</button></div></header><main className="workspace"><article className="document"><div className="document-meta"><span>{wordCount} words</span><span>{draft.length.toLocaleString()} characters</span></div><div ref={editorRef} className="draft" onMouseUp={() => editorRef.current && setSelection(selectedOffsets(editorRef.current))} onKeyUp={() => editorRef.current && setSelection(selectedOffsets(editorRef.current))} role="textbox" aria-label="Marked draft"><MarkedDraft draft={draft} marks={marks} /></div></article></main>{selection && <ActionPopup selection={selection} onApply={apply} onClose={() => setSelection(null)} />}</div>
 }
