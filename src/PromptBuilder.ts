@@ -16,3 +16,15 @@ export function buildCodexPrompt(draft: string, marks: Mark[]) {
   )
   return ['Revise this draft using the marked instructions below. For custom-gist instructions, rewrite in context.', ...instructions, ...exact, ...gist, '', 'DRAFT:', draft, '', 'Return the complete revised draft.'].join('\n')
 }
+
+export function buildFollowUpPrompt(draft: string, direction: string) {
+  return [
+    'Revise the draft using this follow-up direction:',
+    direction.trim(),
+    '',
+    'DRAFT:',
+    draft,
+    '',
+    'Return the complete revised draft.',
+  ].join('\n')
+}

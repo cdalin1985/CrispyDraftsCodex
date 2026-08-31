@@ -1,12 +1,13 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Eraser, Mic, Pencil, RotateCcw, Send, Undo2, X } from 'lucide-react'
+import { Check, Clipboard, Eraser, LoaderCircle, Mic, Pencil, RotateCcw, Send, Sparkles, Undo2, X } from 'lucide-react'
 import { actions, initialDraft } from './constants'
-import { buildCodexPrompt } from './PromptBuilder'
+import { buildCodexPrompt, buildFollowUpPrompt } from './PromptBuilder'
 import type { Mark, SelectionState } from './types'
 
 type SpeechWindow = Window & typeof globalThis & { webkitSpeechRecognition?: new () => SpeechRecognition; SpeechRecognition?: new () => SpeechRecognition }
 interface SpeechRecognition extends EventTarget { continuous: boolean; interimResults: boolean; lang: string; start(): void; onresult: (event: SpeechRecognitionEvent) => void; onend: () => void }
 interface SpeechRecognitionEvent { results: { [index: number]: { [index: number]: { transcript: string } } }; resultIndex: number }
+type RevisionState = { sourceDraft: string; text: string; history: string[] }
 
 function selectedOffsets(root: HTMLElement): SelectionState | null {
   const selection = window.getSelection()
@@ -83,12 +84,18 @@ export default function App() {
   const [started, setStarted] = useState(false)
   const [marks, setMarks] = useState<Mark[]>([])
   const [selection, setSelection] = useState<SelectionState | null>(null)
+  const [revision, setRevision] = useState<RevisionState | null>(null)
+  const [followUp, setFollowUp] = useState('')
+  const [isRevising, setIsRevising] = useState(false)
+  const [revisionError, setRevisionError] = useState('')
+  const [copied, setCopied] = useState(false)
   const editorRef = useRef<HTMLDivElement>(null)
   const wordCount = useMemo(() => draft.trim() ? draft.trim().split(/\s+/).length : 0, [draft])
   const updateDraft = (value: string) => {
     setDraft(value)
     setMarks([])
     setSelection(null)
+    setRevision(null)
   }
   const apply = (label: string, color: string, kind: Mark['kind'] = 'color', replacement?: string) => {
     if (!selection) return
@@ -98,10 +105,82 @@ export default function App() {
     setMarks((items) => [...items, { id, start: selection.start, end: selection.end, label, color, kind, replacement }])
     window.getSelection()?.removeAllRanges(); setSelection(null)
   }
-  const send = () => {
-    const prompt = buildCodexPrompt(draft, marks)
-    window.open(`https://chatgpt.com/?q=${encodeURIComponent(prompt)}`, '_blank', 'noopener,noreferrer')
+  const runRevision = async (prompt: string, base: RevisionState) => {
+    if (isRevising) return
+    const previousText = base.text
+    const pendingState = {
+      ...base,
+      text: '',
+      history: previousText ? [...base.history, previousText] : base.history,
+    }
+    setSelection(null)
+    setRevisionError('')
+    setIsRevising(true)
+    setRevision(pendingState)
+
+    try {
+      const response = await fetch('/api/revise', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt }),
+      })
+
+      if (!response.ok) {
+        const details = await response.json().catch(() => null) as { error?: string } | null
+        throw new Error(details?.error || 'Codex could not revise this draft.')
+      }
+      if (!response.body) throw new Error('Codex returned an empty response.')
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let nextText = ''
+      while (true) {
+        const { value, done } = await reader.read()
+        if (done) break
+        nextText += decoder.decode(value, { stream: true })
+        setRevision((current) => current ? { ...current, text: nextText } : current)
+      }
+      nextText += decoder.decode()
+      if (!nextText.trim()) throw new Error('Codex did not return a revised draft. Please try again.')
+      setRevision((current) => current ? { ...current, text: nextText } : current)
+    } catch (error) {
+      setRevision(base)
+      setRevisionError(error instanceof Error ? error.message : 'Codex could not revise this draft.')
+    } finally {
+      setIsRevising(false)
+    }
+  }
+  const startRevision = () => {
+    void runRevision(buildCodexPrompt(draft, marks), { sourceDraft: draft, text: '', history: [] })
+  }
+  const reviseAgain = () => {
+    if (!revision?.text.trim() || !followUp.trim()) return
+    const prompt = buildFollowUpPrompt(revision.text, followUp)
+    setFollowUp('')
+    void runRevision(prompt, revision)
+  }
+  const useRevision = () => {
+    if (!revision?.text.trim()) return
+    updateDraft(revision.text)
+    setStarted(true)
+  }
+  const copyRevision = async () => {
+    if (!revision?.text) return
+    await navigator.clipboard.writeText(revision.text)
+    setCopied(true)
+    window.setTimeout(() => setCopied(false), 1600)
   }
   if (!started) return <main className="landing"><section><div className="brand">CrispyDrafts</div><h1>Mark the draft.<br />Make the next pass count.</h1><p>Paste or type your writing below, then highlight the parts that need attention.</p><textarea autoFocus value={draft} onChange={(event) => updateDraft(event.target.value)} placeholder="Paste or type your draft here…" aria-label="Draft" /><div className="landing-footer"><span>{wordCount} words</span><button className="primary" onClick={() => setStarted(true)} disabled={!draft.trim()}>Start marking <Send size={16} /></button></div></section></main>
-  return <div className="app-shell"><header className="toolbar"><button className="brand-btn" onClick={() => setStarted(false)}>CrispyDrafts</button><div className="toolbar-actions"><button onClick={() => { setSelection(null); setStarted(false) }}><Pencil size={16} /> <span>Edit draft</span></button><button onClick={() => setMarks((items) => items.slice(0, -1))} disabled={!marks.length}><Undo2 size={17} /> <span>Undo</span></button><button onClick={() => setMarks([])} disabled={!marks.length}><RotateCcw size={16} /> <span>Clear all</span></button><button className="primary send" onClick={send}><Send size={16} /> Send to Codex</button></div></header><main className="workspace"><article className="document"><div className="document-meta"><span>{wordCount} words</span><span>{draft.length.toLocaleString()} characters</span></div><div ref={editorRef} className="draft" onMouseUp={() => editorRef.current && setSelection(selectedOffsets(editorRef.current))} onKeyUp={() => editorRef.current && setSelection(selectedOffsets(editorRef.current))} role="textbox" aria-label="Marked draft"><MarkedDraft draft={draft} marks={marks} /></div></article></main>{selection && <ActionPopup selection={selection} onApply={apply} onClose={() => setSelection(null)} />}</div>
+  if (revision) return <div className="app-shell revision-shell">
+    <header className="toolbar"><button className="brand-btn" onClick={() => setRevision(null)} disabled={isRevising}>CrispyDrafts</button><div className="toolbar-actions revision-actions"><button aria-label="Back to marks" onClick={() => setRevision(null)} disabled={isRevising}><Pencil size={16} /> <span>Back to marks</span></button><button aria-label="Undo revision" onClick={() => setRevision((current) => current?.history.length ? { ...current, text: current.history.at(-1) ?? '', history: current.history.slice(0, -1) } : current)} disabled={!revision.history.length || isRevising}><Undo2 size={17} /> <span>Undo revision</span></button><button aria-label={copied ? 'Copied' : 'Copy revised draft'} onClick={() => void copyRevision()} disabled={!revision.text || isRevising}>{copied ? <Check size={16} /> : <Clipboard size={16} />} <span>{copied ? 'Copied' : 'Copy'}</span></button><button aria-label="Use revision as draft" className="primary use-revision" onClick={useRevision} disabled={!revision.text.trim() || isRevising}><Check size={16} /> Use as draft</button></div></header>
+    <main className="revision-workspace">
+      <section className="revision-intro"><div><span className="eyebrow">In-page revision</span><h1>Your next pass, without leaving.</h1><p>Edit the result directly or give Codex another instruction below.</p></div><div className={`revision-status ${isRevising ? 'working' : ''}`}>{isRevising ? <LoaderCircle size={17} className="spin" /> : <Sparkles size={17} />}<span>{isRevising ? 'Codex is revising…' : 'Revision ready'}</span></div></section>
+      <div className="revision-grid">
+        <article className="revision-panel source-panel"><div className="panel-head"><span>Marked draft</span><span>{revision.sourceDraft.trim().split(/\s+/).length} words</span></div><div className="source-copy"><MarkedDraft draft={revision.sourceDraft} marks={marks} /></div></article>
+        <section className="revision-panel result-panel"><div className="panel-head"><span>Revised draft</span><span>{revision.text.trim() ? revision.text.trim().split(/\s+/).length : 0} words</span></div><div className="result-editor-wrap">{isRevising && !revision.text && <div className="revision-placeholder"><LoaderCircle size={20} className="spin" /><span>Making the next pass…</span></div>}<textarea className="revised-editor" value={revision.text} onChange={(event) => setRevision((current) => current ? { ...current, text: event.target.value } : current)} readOnly={isRevising} aria-label="Revised draft" placeholder={isRevising ? '' : 'The revised draft will appear here.'} /></div></section>
+      </div>
+      <section className="iteration-box"><div><span className="eyebrow">Another pass</span><h2>What should Codex change next?</h2><p>The current revised draft stays intact until the next version is ready.</p></div><div className="follow-up-control"><textarea value={followUp} onChange={(event) => setFollowUp(event.target.value)} placeholder="e.g. Make it warmer and cut about 15%" aria-label="Follow-up revision direction" disabled={isRevising || !revision.text} /><button className="primary" onClick={reviseAgain} disabled={isRevising || !revision.text || !followUp.trim()}>{isRevising ? <LoaderCircle size={16} className="spin" /> : <Sparkles size={16} />} Revise again</button></div>{revisionError && <div className="revision-error" role="alert"><span>{revisionError}</span>{!revision.text && <button onClick={startRevision}>Try again</button>}</div>}</section>
+    </main>
+  </div>
+  return <div className="app-shell"><header className="toolbar"><button className="brand-btn" onClick={() => setStarted(false)}>CrispyDrafts</button><div className="toolbar-actions"><button aria-label="Edit draft" onClick={() => { setSelection(null); setStarted(false) }}><Pencil size={16} /> <span>Edit draft</span></button><button aria-label="Undo last mark" onClick={() => setMarks((items) => items.slice(0, -1))} disabled={!marks.length}><Undo2 size={17} /> <span>Undo</span></button><button aria-label="Clear all marks" onClick={() => setMarks([])} disabled={!marks.length}><RotateCcw size={16} /> <span>Clear all</span></button><button aria-label="Revise here" className="primary send" onClick={startRevision} disabled={isRevising}><Sparkles size={16} /> Revise here</button></div></header><main className="workspace"><article className="document"><div className="document-meta"><span>{wordCount} words</span><span>{draft.length.toLocaleString()} characters</span></div><div ref={editorRef} className="draft" onMouseUp={() => editorRef.current && setSelection(selectedOffsets(editorRef.current))} onKeyUp={() => editorRef.current && setSelection(selectedOffsets(editorRef.current))} role="textbox" aria-label="Marked draft"><MarkedDraft draft={draft} marks={marks} /></div></article></main>{selection && <ActionPopup selection={selection} onApply={apply} onClose={() => setSelection(null)} />}</div>
 }
