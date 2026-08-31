@@ -8,6 +8,7 @@ const MAX_REQUIREMENTS = 100
 const revisionInstructions = [
   'You are the revision engine inside CrispyDrafts.',
   'Every marked [M#] instruction is mandatory. Apply each one precisely while preserving the writer\'s meaning, voice, formatting, and all unmarked material unless a small contextual adjustment is necessary.',
+  'Wrong angle — rethink requires a different claim, reason, benefit, or emphasis; a paraphrase or synonym swap of the original point is a failure. Rewrite the surrounding sentence when needed.',
   'For custom-exact instructions, use the replacement exactly as supplied.',
   'For custom-gist instructions, rewrite the selected passage naturally in context.',
   'For each [M#], report the exact resulting passage in the audit. Use an empty resulting passage when a mark cuts text.',
@@ -55,7 +56,8 @@ const stopWords = new Set(['a', 'an', 'and', 'as', 'at', 'be', 'but', 'by', 'for
 function meaningfulWords(value: string) {
   const allWords = words(value)
   const contentWords = allWords.filter((word) => word.length > 2 && !stopWords.has(word))
-  return contentWords.length >= 2 ? contentWords : allWords
+  const selectedWords = contentWords.length >= 2 ? contentWords : allWords
+  return selectedWords.map((word) => word.length > 3 && word.endsWith('s') ? word.slice(0, -1) : word)
 }
 
 function tokenRetention(first: string, second: string) {
@@ -134,8 +136,8 @@ function validateRevision(output: RevisionOutput, requirements: RevisionRequirem
 
     if (requirement.label === 'Reword this' && retained >= 0.8) {
       failures.push(`${prefix}: the wording remained too similar`)
-    } else if (requirement.label === 'Wrong angle — rethink' && retained >= 0.5) {
-      failures.push(`${prefix}: the angle was not substantively rethought`)
+    } else if (requirement.label === 'Wrong angle — rethink' && retained >= 0.3) {
+      failures.push(`${prefix}: the new angle is still too close to the original point`)
     } else if (requirement.label === 'Tone is off' && retained >= 0.7) {
       failures.push(`${prefix}: the tone rewrite remained too similar`)
     } else if (requirement.label === 'Add more detail') {
