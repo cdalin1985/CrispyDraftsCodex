@@ -1,8 +1,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Check, Clipboard, Eraser, LoaderCircle, Mic, Pencil, RotateCcw, Send, Sparkles, Undo2, X } from 'lucide-react'
 import { actions, initialDraft } from './constants'
-import { buildCodexPrompt, buildFollowUpPrompt } from './PromptBuilder'
-import type { Mark, SelectionState } from './types'
+import { buildCodexPrompt, buildFollowUpPrompt, buildRevisionRequirements } from './PromptBuilder'
+import type { Mark, RevisionRequirement, SelectionState } from './types'
 
 type SpeechWindow = Window & typeof globalThis & { webkitSpeechRecognition?: new () => SpeechRecognition; SpeechRecognition?: new () => SpeechRecognition }
 interface SpeechRecognition extends EventTarget { continuous: boolean; interimResults: boolean; lang: string; start(): void; onresult: (event: SpeechRecognitionEvent) => void; onend: () => void }
@@ -105,7 +105,7 @@ export default function App() {
     setMarks((items) => [...items, { id, start: selection.start, end: selection.end, label, color, kind, replacement }])
     window.getSelection()?.removeAllRanges(); setSelection(null)
   }
-  const runRevision = async (prompt: string, base: RevisionState) => {
+  const runRevision = async (prompt: string, base: RevisionState, requirements: RevisionRequirement[] = []) => {
     if (isRevising) return
     const previousText = base.text
     const pendingState = {
@@ -122,7 +122,7 @@ export default function App() {
       const response = await fetch('/api/revise', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt }),
+        body: JSON.stringify({ prompt, requirements }),
       })
 
       if (!response.ok) {
@@ -151,7 +151,7 @@ export default function App() {
     }
   }
   const startRevision = () => {
-    void runRevision(buildCodexPrompt(draft, marks), { sourceDraft: draft, text: '', history: [] })
+    void runRevision(buildCodexPrompt(draft, marks), { sourceDraft: draft, text: '', history: [] }, buildRevisionRequirements(draft, marks))
   }
   const reviseAgain = () => {
     if (!revision?.text.trim() || !followUp.trim()) return
@@ -174,10 +174,10 @@ export default function App() {
   if (revision) return <div className="app-shell revision-shell">
     <header className="toolbar"><button className="brand-btn" onClick={() => setRevision(null)} disabled={isRevising}>CrispyDrafts</button><div className="toolbar-actions revision-actions"><button aria-label="Back to marks" onClick={() => setRevision(null)} disabled={isRevising}><Pencil size={16} /> <span>Back to marks</span></button><button aria-label="Undo revision" onClick={() => setRevision((current) => current?.history.length ? { ...current, text: current.history.at(-1) ?? '', history: current.history.slice(0, -1) } : current)} disabled={!revision.history.length || isRevising}><Undo2 size={17} /> <span>Undo revision</span></button><button aria-label={copied ? 'Copied' : 'Copy revised draft'} onClick={() => void copyRevision()} disabled={!revision.text || isRevising}>{copied ? <Check size={16} /> : <Clipboard size={16} />} <span>{copied ? 'Copied' : 'Copy'}</span></button><button aria-label="Use revision as draft" className="primary use-revision" onClick={useRevision} disabled={!revision.text.trim() || isRevising}><Check size={16} /> Use as draft</button></div></header>
     <main className="revision-workspace">
-      <section className="revision-intro"><div><span className="eyebrow">In-page revision</span><h1>Your next pass, without leaving.</h1><p>Edit the result directly or give Codex another instruction below.</p></div><div className={`revision-status ${isRevising ? 'working' : ''}`}>{isRevising ? <LoaderCircle size={17} className="spin" /> : <Sparkles size={17} />}<span>{isRevising ? 'Codex is revising…' : 'Revision ready'}</span></div></section>
+      <section className="revision-intro"><div><span className="eyebrow">In-page revision</span><h1>Your next pass, without leaving.</h1><p>Edit the result directly or give Codex another instruction below.</p></div><div className={`revision-status ${isRevising ? 'working' : ''}`}>{isRevising ? <LoaderCircle size={17} className="spin" /> : <Sparkles size={17} />}<span>{isRevising ? (marks.length ? 'Revising and checking every mark…' : 'Revising…') : (marks.length ? 'Every mark checked' : 'Revision ready')}</span></div></section>
       <div className="revision-grid">
         <article className="revision-panel source-panel"><div className="panel-head"><span>Marked draft</span><span>{revision.sourceDraft.trim().split(/\s+/).length} words</span></div><div className="source-copy"><MarkedDraft draft={revision.sourceDraft} marks={marks} /></div></article>
-        <section className="revision-panel result-panel"><div className="panel-head"><span>Revised draft</span><span>{revision.text.trim() ? revision.text.trim().split(/\s+/).length : 0} words</span></div><div className="result-editor-wrap">{isRevising && !revision.text && <div className="revision-placeholder"><LoaderCircle size={20} className="spin" /><span>Making the next pass…</span></div>}<textarea className="revised-editor" value={revision.text} onChange={(event) => setRevision((current) => current ? { ...current, text: event.target.value } : current)} readOnly={isRevising} aria-label="Revised draft" placeholder={isRevising ? '' : 'The revised draft will appear here.'} /></div></section>
+        <section className="revision-panel result-panel"><div className="panel-head"><span>Revised draft</span><span>{revision.text.trim() ? revision.text.trim().split(/\s+/).length : 0} words</span></div><div className="result-editor-wrap">{isRevising && !revision.text && <div className="revision-placeholder"><LoaderCircle size={20} className="spin" /><span>Applying and checking every mark…</span></div>}<textarea className="revised-editor" value={revision.text} onChange={(event) => setRevision((current) => current ? { ...current, text: event.target.value } : current)} readOnly={isRevising} aria-label="Revised draft" placeholder={isRevising ? '' : 'The revised draft will appear here.'} /></div></section>
       </div>
       <section className="iteration-box"><div><span className="eyebrow">Another pass</span><h2>What should Codex change next?</h2><p>The current revised draft stays intact until the next version is ready.</p></div><div className="follow-up-control"><textarea value={followUp} onChange={(event) => setFollowUp(event.target.value)} placeholder="e.g. Make it warmer and cut about 15%" aria-label="Follow-up revision direction" disabled={isRevising || !revision.text} /><button className="primary" onClick={reviseAgain} disabled={isRevising || !revision.text || !followUp.trim()}>{isRevising ? <LoaderCircle size={16} className="spin" /> : <Sparkles size={16} />} Revise again</button></div>{revisionError && <div className="revision-error" role="alert"><span>{revisionError}</span>{!revision.text && <button onClick={startRevision}>Try again</button>}</div>}</section>
     </main>
