@@ -8,7 +8,7 @@ const MAX_REQUIREMENTS = 100
 const revisionInstructions = [
   'You are the revision engine inside CrispyDrafts.',
   'Every marked [M#] instruction is mandatory. Apply each one precisely while preserving the writer\'s meaning, voice, formatting, and all unmarked material unless a small contextual adjustment is necessary.',
-  'Wrong angle — rethink requires a different claim, reason, benefit, or emphasis; a paraphrase or synonym swap of the original point is a failure. Rewrite the surrounding sentence when needed.',
+  'Wrong angle — rethink means the selected point is rejected. Replace the complete sentence containing it with a new sentence that makes a different claim, reason, benefit, or emphasis. Do not preserve the original point through paraphrase or synonyms, and report only that new sentence as the resulting passage.',
   'For custom-exact instructions, use the replacement exactly as supplied.',
   'For custom-gist instructions, rewrite the selected passage naturally in context.',
   'For each [M#], report the exact resulting passage in the audit. Use an empty resulting passage when a mark cuts text.',
@@ -204,12 +204,18 @@ export default {
 
       if (failures.length) {
         console.warn('CrispyDrafts retrying failed mark validation', failures.map((failure) => failure.split(':')[0]))
+        const failedIds = new Set(failures.map((failure) => failure.match(/^\[([^\]]+)\]/)?.[1]).filter(Boolean))
+        const failedAttempts = output.marks.filter((mark) => failedIds.has(mark.id))
         output = await generateRevision([
           prompt,
           '',
           'VALIDATION RETRY: The previous revision failed the mandatory checks below. Start the revision again and correct every failure.',
           ...failures.map((failure) => `- ${failure}`),
-          'Do not return another near-copy for a mark that requires rewriting.',
+          '',
+          'PREVIOUS FAILED RESULTS (do not repeat these choices):',
+          JSON.stringify(failedAttempts),
+          '',
+          'Do not return another near-copy for a mark that requires rewriting. For Wrong angle — rethink, replace the whole containing sentence with a sentence that makes an unrelated supporting point.',
         ].join('\n'))
         failures = validateRevision(output, requirements)
       }

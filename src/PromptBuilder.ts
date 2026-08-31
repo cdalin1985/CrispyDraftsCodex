@@ -3,7 +3,7 @@ import type { Mark, RevisionRequirement } from './types'
 const markRules: Record<string, string> = {
   'Keep as is': 'Preserve this passage exactly.',
   'Reword this': 'Rewrite with noticeably different wording while preserving the meaning. A near-copy does not satisfy this mark.',
-  'Wrong angle — rethink': 'Replace this with a different claim, reason, benefit, or emphasis. Do not paraphrase, synonym-swap, or preserve the core point. Rewrite the surrounding sentence when needed.',
+  'Wrong angle — rethink': 'The selected point is rejected. Replace the complete sentence containing it with a new sentence that makes a different claim, reason, benefit, or emphasis. Do not preserve the original point through paraphrase or synonyms.',
   'Cut it': 'Remove this passage completely.',
   'Add more detail': 'Expand this passage with concrete, relevant detail. The replacement must be meaningfully longer.',
   'Move elsewhere': 'Relocate this passage to a more logical place in the draft. Do not leave it in its original position.',
